@@ -1,7 +1,6 @@
 import streamlit as st
 from groq import Groq
 from PyPDF2 import PdfReader
-import resend
 import urllib.parse
 import google.generativeai as genai
 import json
@@ -9,690 +8,448 @@ import os
 from datetime import datetime
 from fpdf import FPDF
 import base64
+from supabase import create_client, Client
 
 # ---------------- CONFIG & API SETUP ----------------
 st.set_page_config(
-    page_title="HireGen AI | GMRIT Placement Assistant", 
+    page_title="Smart AI | Premium Student Assistant", 
     layout="wide", 
-    page_icon="🚀",
+    page_icon="🎓",
     initial_sidebar_state="expanded"
 )
 
-# Load Secrets from Streamlit Secrets
+# Load Secrets
 try:
     GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
     GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
-    # Fallback for Resend API Key if not in secrets
-    RESEND_API_KEY = st.secrets.get("RESEND_API_KEY", "re_BCMq42pY_ETfi6hyzdocQqsjKksaKY8zU")
+    SUPABASE_URL = st.secrets.get("SUPABASE_URL", "")
+    SUPABASE_KEY = st.secrets.get("SUPABASE_KEY", "")
 except Exception as e:
-    st.error("Missing API Keys in st.secrets! Please add GROQ_API_KEY and GEMINI_API_KEY.")
+    st.error("Missing API Keys in secrets.toml!")
     st.stop()
 
-# Initialize AI Clients
+# Initialize API Clients
 client_groq = Groq(api_key=GROQ_API_KEY)
 genai.configure(api_key=GEMINI_API_KEY)
 
-# Use a more stable model name or fallback
+# Initialize Supabase
 try:
-    gemini_model = genai.GenerativeModel('gemini-1.5-flash')
+    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 except:
-    gemini_model = genai.GenerativeModel('gemini-pro')
+    supabase = None
 
-# ---------------- PERSISTENCE LOGIC ----------------
-HISTORY_FILE = "history.json"
+# ---------------- DATABASE & AUTH LOGIC ----------------
+def register_user(name, email, password, branch="CSE"):
+    if not supabase: return False, "Backend unreachable"
+    try:
+        exists = supabase.table("users").select("email").eq("email", email).execute()
+        if exists.data: return False, "Email already exists"
+        user_data = {"name": name, "email": email, "password": password, "branch": branch}
+        supabase.table("users").insert(user_data).execute()
+        return True, "Profile Created"
+    except Exception as e: return False, str(e)
 
-def load_history():
-    if os.path.exists(HISTORY_FILE):
+def login_user(email, password):
+    if not supabase: return None
+    try:
+        res = supabase.table("users").select("*").eq("email", email).eq("password", password).execute()
+        return res.data[0] if res.data else None
+    except: return None
+
+def load_history(email):
+    if not supabase: return []
+    try:
+        res = supabase.table("history").select("*").eq("user_email", email).order("timestamp", desc=True).limit(10).execute()
+        return res.data
+    except: return []
+
+def save_to_history(email, name, feature, input_text, result):
+    if not supabase: return
+    try:
+        entry = {
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "user_email": email,
+            "user_name": name,
+            "feature": feature,
+            "input": input_text[:150],
+            "result": result
+        }
+        supabase.table("history").insert(entry).execute()
+    except: pass
+
+# ---------------- AI HELPERS ----------------
+def get_groq_response(prompt):
+    try:
+        completion = client_groq.chat.completions.create(
+            messages=[{"role": "user", "content": prompt}],
+            model="llama-3.3-70b-versatile",
+        )
+        return completion.choices[0].message.content
+    except Exception as e: return f"AI Engine Offline: {str(e)}"
+
+def get_career_insight(prompt):
+    try:
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        response = model.generate_content(prompt)
+        if response and response.text: return response.text
+    except:
         try:
-            with open(HISTORY_FILE, "r") as f:
-                return json.load(f)
+            model = genai.GenerativeModel("gemini-pro")
+            response = model.generate_content(prompt)
+            if response and response.text: return response.text
         except:
-            return []
-    return []
+            return get_groq_response(f"Expert Academic Advisor: {prompt}")
 
-def save_to_history(user_data, feature, input_text, result):
-    history = load_history()
-    entry = {
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "user": user_data,
-        "feature": feature,
-        "input": input_text[:150] + "..." if len(input_text) > 150 else input_text,
-        "result": result
-    }
-    history.insert(0, entry)
-    # Keep last 10 entries as requested
-    with open(HISTORY_FILE, "w") as f:
-        json.dump(history[:10], f, indent=4)
-
-# ---------------- UI & STYLING ----------------
+# ---------------- UI & MODERN STYLING ----------------
 def apply_custom_styles():
     st.markdown("""
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap');
-    
-    /* Global Colors */
-    html, body, [data-testid="stAppViewContainer"] {
-        font-family: 'Outfit', sans-serif;
-        background: #ffffff !important;
-        color: #064e3b !important;
-    }
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        /* Global Base */
+        html, body, [data-testid="stAppViewContainer"] {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a !important; /* Dark Blue Slate */
+            color: #f8fafc !important;
+        }
 
-    /* Mint Sidebar (Replacing Black) */
-    [data-testid="stSidebar"], [data-testid="stSidebar"] section {
-        background-color: #f0fdf4 !important;
-        border-right: 1px solid #d1fae5 !important;
-    }
-    [data-testid="stSidebar"] * { color: #064e3b !important; }
+        /* Sidebar Styling */
+        [data-testid="stSidebar"] {
+            background-color: #020617 !important;
+            border-right: 1px solid #1e293b !important;
+        }
+        [data-testid="stSidebarNav"] { display: none; } /* Hide default nav */
+        
+        .sidebar-title {
+            color: #f8fafc;
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 2rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
 
-    /* Green File Uploader (Replacing Black) */
-    [data-testid="stFileUploader"] section {
-        background-color: #ecfdf5 !important;
-        border: 2px dashed #10b981 !important;
-        color: #064e3b !important;
-        border-radius: 12px !important;
-    }
-    [data-testid="stFileUploader"] label { color: #064e3b !important; }
-    [data-testid="stFileUploader"] section button {
-        background-color: #10b981 !important;
-        color: white !important;
-        border: none !important;
-    }
+        /* Modern Card System */
+        .card {
+            background: #1e293b;
+            padding: 1.5rem;
+            border-radius: 16px;
+            border: 1px solid #334155;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2);
+            border-color: #3b82f6;
+        }
+        
+        .stat-card {
+            text-align: center;
+            border-bottom: 4px solid #3b82f6;
+        }
+        .stat-val { font-size: 2rem; font-weight: 800; color: #3b82f6; }
+        .stat-label { font-size: 0.875rem; color: #94a3b8; }
 
-    /* GLOBAL VISIBILITY OVERRIDE: ENFORCE DARK GREEN ON WHITE */
-    input, textarea, select {
-        color: #064e3b !important;
-        background-color: #ffffff !important;
-        -webkit-text-fill-color: #064e3b !important;
-    }
-    
-    [data-baseweb="select"], [data-baseweb="select"] * {
-        background-color: #ffffff !important;
-        color: #064e3b !important;
-    }
+        .quick-action-card {
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            padding: 1.25rem;
+        }
 
-    [data-testid="stNumberInput"] div[data-baseweb="input"], 
-    [data-testid="stNumberInput"] button {
-        background-color: #ffffff !important;
-        color: #10b981 !important;
-    }
+        /* High Visibility Inputs */
+        input, textarea, select {
+            background-color: #1e293b !important;
+            color: #f8fafc !important;
+            border: 1px solid #334155 !important;
+            border-radius: 12px !important;
+        }
+        
+        /* Primary Buttons */
+        .stButton>button {
+            background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%) !important;
+            color: white !important;
+            border: none !important;
+            border-radius: 12px !important;
+            padding: 0.6rem 2rem !important;
+            font-weight: 600 !important;
+            width: 100% !important;
+            transition: all 0.3s ease !important;
+        }
+        .stButton>button:hover {
+            opacity: 0.9 !important;
+            box-shadow: 0 0 20px rgba(59, 130, 246, 0.4) !important;
+        }
 
-    /* Radio Button Clarity */
-    [data-testid="stRadio"] label div[data-testid="stMarkdownContainer"] p {
-        color: #064e3b !important;
-        font-weight: 600 !important;
-    }
-    /* Unselected circle */
-    [data-testid="stRadio"] div[role="radiogroup"] label div:first-of-type {
-        background-color: #ffffff !important;
-        border: 2px solid #10b981 !important;
-    }
-    /* Selected circle */
-    [data-checked="true"] div:first-of-type {
-        background-color: #10b981 !important;
-        border-color: #10b981 !important;
-    }
+        /* Tabs Styling */
+        [data-testid="stHorizontalBlock"] { gap: 0 !important; }
+        
+        .pro-tip {
+            background: rgba(59, 130, 246, 0.1);
+            border-left: 4px solid #3b82f6;
+            padding: 1.5rem;
+            border-radius: 8px;
+            margin: 1rem 0;
+        }
 
-    label { color: #064e3b !important; font-weight: 600 !important; }
-
-    .glass-card {
-        background: rgba(240, 253, 244, 0.6) !important;
-        padding: 30px !important;
-        border-radius: 20px !important;
-        border: 1px solid #d1fae5 !important;
-        box-shadow: 0 4px 20px rgba(16, 185, 129, 0.05) !important;
-        margin-bottom: 25px !important;
-        backdrop-filter: blur(10px);
-    }
-
-    .info-box {
-        background: #ecfdf5 !important;
-        border-left: 5px solid #10b981 !important;
-        padding: 20px !important;
-        border-radius: 12px !important;
-        margin: 15px 0 !important;
-        color: #065f46 !important;
-    }
-
-    /* Green Navigation Control */
-    .stTabs [data-baseweb="tab-list"] { gap: 10px !important; }
-    .stTabs [data-baseweb="tab"] {
-        background-color: #f0fdf4 !important;
-        border-radius: 10px 10px 0 0 !important;
-        color: #059669 !important;
-        padding: 10px 25px !important;
-        border: 1px solid #d1fae5 !important;
-    }
-    .stTabs [aria-selected="true"] {
-        background-color: #10b981 !important;
-        color: white !important;
-        border: 1px solid #10b981 !important;
-    }
-
-    /* Primary Jade Action Buttons */
-    .stButton>button {
-        background: #10b981 !important;
-        color: white !important;
-        border-radius: 12px !important;
-        padding: 12px !important;
-        font-weight: 700 !important;
-        border: none !important;
-        transition: 0.3s !important;
-        box-shadow: 0 4px 15px rgba(16, 185, 129, 0.2) !important;
-    }
-    .stButton>button:hover {
-        background-color: #059669 !important;
-        box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4) !important;
-    }
-
-    h1, h2, h3 { color: #064e3b !important; }
-</style>
+        .user-profile {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            width: 200px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px;
+            background: #1e293b;
+            border-radius: 12px;
+            border: 1px solid #334155;
+        }
+    </style>
     """, unsafe_allow_html=True)
 
-# ---------------- CORE AI PERSONA ----------------
-SYSTEM_PROMPT = """You are an AI Placement Assistant designed to help GMRIT students.
-Your capabilities include: Resume analysis, Quiz generation/evaluation, Interview simulation, Concept explanation, and Roadmap creation.
-Style: Be concise, practical, and focus on improving user performance. 
-Adapt responses to user level (Beginner/Intermediate/Advanced).
+# ---------------- NAVIGATION ----------------
+def sidebar_nav():
+    with st.sidebar:
+        st.markdown("<div class='sidebar-title'>🎓 Smart AI</div>", unsafe_allow_html=True)
+        
+        active_tab = st.session_state.get('active_page', 'Dashboard')
+        
+        pages = {
+            "🏠 Dashboard": "Dashboard",
+            "🎯 Interview Prep": "Interview Prep",
+            "📝 Quiz Generator": "Quiz Generator",
+            "💡 Concept Explainer": "Concept Explainer",
+            "📅 Study Planner": "Study Planner",
+            "🕒 History": "History"
+        }
+        
+        for label, val in pages.items():
+            # Styling for active button
+            btn_style = "primary" if active_tab == val else "secondary"
+            if st.button(label, key=f"nav_{val}", use_container_width=True):
+                st.session_state.active_page = val
+                st.rerun()
+        
+        st.markdown("<div style='margin-top: 10rem;'></div>", unsafe_allow_html=True) # Spacer
+        
+        # User profile
+        st.markdown(f"""
+        <div class="user-profile">
+            <div style="background: #3b82f6; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold;">{st.session_state.user_name[0] if st.session_state.user_name else "S"}</div>
+            <div>
+                <div style="font-size: 0.8rem; font-weight: 600;">{st.session_state.user_name}</div>
+                <div style="font-size: 0.7rem; color: #94a3b8;">{st.session_state.email}</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        if st.button("🚪 Logout", use_container_width=True):
+            st.session_state.logged_in = False
+            st.rerun()
 
-Formatting Rules:
-- Use emojis in headings (e.g. ### ⭐, ### ✅, ### 🔧)
-- Use ONLY bullet points for content.
-- Keep clear spacing between sections.
-- NO long paragraphs; only short, actionable points.
-- Optimize for a clean, card-based interface.
-"""
-
-def get_gemini_response(prompt, is_telugu=False):
-    """Handles resume analysis and translations using first available Gemini model."""
-    full_p = f"{SYSTEM_PROMPT}\n\nTask: {prompt}"
-    try:
-        available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        if not available_models:
-            return "Gemini Error: No models found."
-        selected_model = next((m for m in available_models if 'flash' in m), available_models[0])
-        model = genai.GenerativeModel(selected_model)
-        response = model.generate_content(full_p)
-        return response.text
-    except Exception as e:
-        return f"Gemini Error: {str(e)}"
-
-def get_groq_response(prompt):
-    """Handles fast chat responses using Groq with global persona system instruction."""
-    models_to_try = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"]
-    last_err = ""
-    for m_id in models_to_try:
-        try:
-            chat_completion = client_groq.chat.completions.create(
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": prompt}
-                ],
-                model=m_id,
-            )
-            return chat_completion.choices[0].message.content
-        except Exception as e:
-            last_err = str(e)
-            continue
-    return f"Groq Error: {last_err}"
-
-def generate_pdf(content, title="HireGen AI Report"):
-    """Creates a downloadable PDF of the generated content."""
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", 'B', 16)
-    pdf.cell(200, 10, txt=title, ln=True, align='C')
-    pdf.set_font("Arial", size=11)
-    pdf.ln(10)
-    # Sanitize for PDF encoding
-    clean_content = content.encode('latin-1', 'ignore').decode('latin-1')
-    pdf.multi_cell(0, 8, txt=clean_content)
+# ---------------- PAGES ----------------
+def render_dashboard():
+    st.markdown(f"<h1>Welcome back, {st.session_state.user_name} 👋</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='color: #94a3b8;'>Your AI-powered study companion for academics & placements</p>", unsafe_allow_html=True)
     
-    pdf_output = pdf.output(dest='S').encode('latin-1')
-    b64_pdf = base64.b64encode(pdf_output).decode('utf-8')
-    return b64_pdf
+    # Stat Cards
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.markdown("<div class='card stat-card'><div class='stat-val'>0</div><div class='stat-label'>Quizzes Taken</div></div>", unsafe_allow_html=True)
+    with c2:
+        st.markdown("<div class='card stat-card'><div class='stat-val'>0</div><div class='stat-label'>Concepts Learned</div></div>", unsafe_allow_html=True)
+    with c3:
+        st.markdown("<div class='card stat-card'><div class='stat-val'>0</div><div class='stat-label'>Interview Sessions</div></div>", unsafe_allow_html=True)
+    with c4:
+        st.markdown("<div class='card stat-card'><div class='stat-val'>0 days</div><div class='stat-label'>Study Streak</div></div>", unsafe_allow_html=True)
+    
+    st.markdown("<h3 style='margin-top: 2rem;'>Quick Actions</h3>", unsafe_allow_html=True)
+    
+    # Quick Action Cards
+    qa1, qa2 = st.columns(2)
+    with qa1:
+        if st.button("🎯 Interview Prep\nAI-powered company-specific preparation", key="qa_iv"):
+            st.session_state.active_page = "Interview Prep"
+            st.rerun()
+        if st.button("💡 Concept Explainer\nUnderstand concepts in English & Telugu", key="qa_ex"):
+            st.session_state.active_page = "Concept Explainer"
+            st.rerun()
+    with qa2:
+        if st.button("📝 Quiz Generator\nGenerate quizzes from your notes or PDFs", key="qa_qz"):
+            st.session_state.active_page = "Quiz Generator"
+            st.rerun()
+        if st.button("📅 Study Planner\nAI-powered daily study plan with smart scheduling", key="qa_sp"):
+            st.session_state.active_page = "Study Planner"
+            st.rerun()
+            
+    st.markdown("""
+    <div class="pro-tip">
+        <strong>💡 Pro Tip</strong><br>
+        Upload your resume in <b>Interview Prep</b> to get personalized company-specific questions. 
+        Then use the <b>Quiz Generator</b> with your notes to identify weak areas!
+    </div>
+    """, unsafe_allow_html=True)
 
-def render_download_button(content, filename="HireGen_Report.pdf"):
-    b64_pdf = generate_pdf(content)
-    href = f'<a href="data:application/pdf;base64,{b64_pdf}" download="{filename}" style="text-decoration:none;"><button style="width:100%; background:#1e293b; color:white; border:1px solid #334155; padding:12px; border-radius:12px; cursor:pointer; font-weight:600;">📥 Download PDF Analysis</button></a>'
-    st.markdown(href, unsafe_allow_html=True)
+def render_interview_prep():
+    st.markdown("<h1>🎯 Interview Prep</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='color: #94a3b8;'>Upload your resume and get tailored interview questions.</p>", unsafe_allow_html=True)
+    
+    with st.container():
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        pdf_file = st.file_uploader("Upload PDF Resume", type=["pdf"])
+        company = st.text_input("Company Name / Role", placeholder="e.g. Google - Software Engineer")
+        
+        if st.button("🚀 Analyze & Generate Roadmap"):
+            if pdf_file:
+                with st.spinner("Smart AI is decoding your resume..."):
+                    reader = PdfReader(pdf_file)
+                    text = "".join([p.extract_text() for p in reader.pages if p.extract_text()])
+                    res = get_career_insight(f"Placement analysis for {company}: {text[:3000]}")
+                    st.markdown(f"<div class='info-box'>{res}</div>", unsafe_allow_html=True)
+                    save_to_history(st.session_state.email, st.session_state.user_name, "Interview Prep", company, res)
+            else: st.warning("Please upload a PDF resume.")
+        st.markdown("</div>", unsafe_allow_html=True)
 
-# ---------------- APP MAIN ----------------
+def render_quiz_generator():
+    st.markdown("<h1>📝 Quiz Generator</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='color: #94a3b8;'>Paste your notes or upload a file to generate a customized quiz.</p>", unsafe_allow_html=True)
+    
+    with st.container():
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        notes = st.text_area("Your Notes", height=250, placeholder="Paste your study notes here... (e.g., Data Structures, DBMS, OS concepts)")
+        uploaded_file = st.file_uploader("Upload TXT file", type=["txt"])
+        
+        if st.button("🏁 Generate Smart Quiz"):
+            source = notes if notes else "Cloud File"
+            with st.spinner("Generating competitive questions..."):
+                q = get_groq_response(f"Generate 5 MCQs with answers from these notes: {source[:2000]}")
+                st.markdown(f"<div class='info-box'>{q}</div>", unsafe_allow_html=True)
+                save_to_history(st.session_state.email, st.session_state.user_name, "Quiz Generator", "Notes Quiz", q)
+        st.markdown("</div>", unsafe_allow_html=True)
 
+def render_concept_explainer():
+    st.markdown("<h1>💡 Concept Explainer</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='color: #94a3b8;'>Understand any complex topic in simple language and multiple languages.</p>", unsafe_allow_html=True)
+    
+    c1, c2 = st.columns([4, 1])
+    with c1:
+        topic = st.text_input("topic_search", label_visibility="collapsed", placeholder="e.g., Binary Search Tree, TCP/IP, Polymorphism...")
+    with c2:
+        if st.button("🔍 Explain"):
+            if topic:
+                with st.spinner("Explaining..."):
+                    res = get_career_insight(f"Explain {topic} in simple terms with examples.")
+                    st.session_state.explainer_res = res
+            else: st.warning("Enter a topic!")
+
+    if 'explainer_res' in st.session_state:
+        st.markdown(f"<div class='card info-box'>{st.session_state.explainer_res}</div>", unsafe_allow_html=True)
+        save_to_history(st.session_state.email, st.session_state.user_name, "Concept Explainer", topic, st.session_state.explainer_res)
+
+def render_study_planner():
+    st.markdown("<h1>📅 AI Study Planner</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='color: #94a3b8;'>Smart daily plans scheduled around your goals.</p>", unsafe_allow_html=True)
+    
+    with st.container():
+        st.markdown("<div class='card'>", unsafe_allow_html=True)
+        topics = st.text_area("Syllabus / Topics", placeholder="Enter subjects and topics, e.g.\nData Structures - Arrays, Linked Lists\nDBMS - Normalization, SQL")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            hours = st.number_input("Study Hours/Day", 1, 16, 4)
+        with col2:
+            deadline = st.date_input("Exam Deadline")
+            
+        if st.button("🔮 Generate Study Plan"):
+            with st.spinner("Building your roadmap..."):
+                prompt = f"Create a study plan for these topics: {topics}. Hours/day: {hours}. Deadline: {deadline}."
+                res = get_career_insight(prompt)
+                st.markdown(f"<div class='info-box'>{res}</div>", unsafe_allow_html=True)
+                save_to_history(st.session_state.email, st.session_state.user_name, "Study Planner", f"Plan for {deadline}", res)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+def render_history():
+    st.markdown("<h1>🕒 Your History</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='color: #94a3b8;'>Review your past learning and preparation sessions.</p>", unsafe_allow_html=True)
+    
+    data = load_history(st.session_state.email)
+    if not data:
+        st.info("Your history will appear here as you use the Smart AI features.")
+    else:
+        for item in data:
+            with st.container():
+                st.markdown(f"""
+                <div class='card' style='margin-bottom: 1rem;'>
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-weight: 700; color: #3b82f6;">{item.get('feature', 'Entry')}</span>
+                        <span style="font-size: 0.8rem; color: #94a3b8;">{item['timestamp']}</span>
+                    </div>
+                    <div style="margin-top: 0.5rem; font-size: 0.9rem; color: #cbd5e1;">{item.get('input', 'N/A')}</div>
+                    <div style="margin-top: 1rem; padding: 10px; background: #0f172a; border-radius: 8px; font-size: 0.85rem; max-height: 150px; overflow-y: auto;">
+                        {item.get('result', '')}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+# ---------------- MAIN APP WRAPPER ----------------
 def main():
     apply_custom_styles()
     
-    # Session States
-    if 'history' not in st.session_state: st.session_state.history = load_history()
-    if 'lang' not in st.session_state: st.session_state.lang = "English"
-    if 'user' not in st.session_state: st.session_state.user = {"name": "", "branch": "CSE", "college": "GMRIT"}
-
-    # --- SIDEBAR & LOGIN ---
-    with st.sidebar:
-        st.markdown("<h1 style='color: #10b981; font-size: 2.2rem;'>HireGen AI</h1>", unsafe_allow_html=True)
-        st.image("https://img.icons8.com/fluency/144/rocket.png", width=100)
+    # Initialize Page State
+    if 'active_page' not in st.session_state:
+        st.session_state.active_page = 'Dashboard'
         
-        st.markdown("### 🎓 Student Identity")
-        st.session_state.user["name"] = st.text_input("Name", value=st.session_state.user["name"])
-        st.session_state.user["branch"] = st.selectbox("Branch", ["CSE", "IT", "ECE", "EEE", "MECH", "CIVIL", "CS-BS", "CS-AIML"], index=0)
-        st.session_state.user["college"] = st.text_input("College", value="GMRIT", disabled=True)
-        
-        st.divider()
-        st.markdown("### 🌍 Global Language Toggle")
-        st.session_state.lang = st.radio("Setting", ["English", "Telugu"], horizontal=True)
-        
-        st.divider()
-        if st.session_state.user["name"]:
-            st.success(f"Loginned: {st.session_state.user['name']}")
-        
-        st.info("💡 Tip: Use Gemini Vision for best Resume insights!")
+    sidebar_nav()
+    
+    # Page Routing
+    if st.session_state.active_page == "Dashboard":
+        render_dashboard()
+    elif st.session_state.active_page == "Interview Prep":
+        render_interview_prep()
+    elif st.session_state.active_page == "Quiz Generator":
+        render_quiz_generator()
+    elif st.session_state.active_page == "Concept Explainer":
+        render_concept_explainer()
+    elif st.session_state.active_page == "Study Planner":
+        render_study_planner()
+    elif st.session_state.active_page == "History":
+        render_history()
 
-    # --- TOP HERO SECTION ---
-    st.markdown(f"""
-        <div style='text-align: center;'>
-            <h1 style='font-size: 3.8rem; letter-spacing: -1px;'>Winning <span class='gradient-text'>Placement App</span></h1>
-            <p style='color: #64748b; font-size: 1.25rem; font-weight: 400;'>Empowering GMRIT Students with Generative AI for 2026 Hackathon</p>
-        </div>
-    """, unsafe_allow_html=True)
-
-    # --- NAVIGATION TABS ---
-    tabs = st.tabs(["📄 Resume Intelligence", "🎯 Mock Interview", "🧠 Answer Evaluator", "📝 Skill Quiz", "💡 AI Mentor", "🕒 History Log"])
-
-    # 1. RESUME ANALYZER + ROADMAP
-    with tabs[0]:
-        st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
-        st.header("📄 AI Resume Intelligence")
-        
-        c1, c2 = st.columns([2, 1])
-        with c1:
-            resume_file = st.file_uploader("Upload PDF Resume", type=["pdf"])
-        with c2:
-            target_role = st.text_input("Target Role", placeholder="e.g. Java Designer")
-            email_to = st.text_input("Email Report")
-
-        if st.button("🚀 Analyze & Create 7-Day Roadmap"):
-            if not resume_file: st.warning("Upload Resume first!")
-            else:
-                with st.spinner("Gemini is decoding your career..."):
-                    reader = PdfReader(resume_file)
-                    text = "".join([p.extract_text() for p in reader.pages])
-                    
-                    p = f"""You are an expert resume reviewer. Analyze this resume for {st.session_state.user['name']}.
-                    
-                    Rules:
-                    - Use ONLY simple English. No complex words.
-                    - Give ONLY 5-7 key points (strictly 1 line each).
-                    - Give exactly 3 practical improvements (strictly 1 line each).
-                    - Format strictly as requested.
-
-                    ### ⭐ Resume Score:
-                    [Score]/100
-
-                    ### ✅ Key Points:
-                    - [Point 1]
-                    - [Point 2]
-                    - [Point 3]
-                    - [Point 4]
-                    - [Point 5]
-
-                    ### 🔧 Improvements:
-                    - [Imp 1]
-                    - [Imp 2]
-                    - [Imp 3]
-
-                    ### 🚀 Personalized Questions:
-                    - [Intelligent Hybrid Q1]
-                    - [Intelligent Hybrid Q2]
-                    - [Intelligent Hybrid Q3]
-
-                    ### 🔥 Final 7 Days Prep Plan (Role: {target_role if target_role else 'Campus Placement'})
-                    Rules for Plan:
-                    - Focus ONLY on revision (not learning new topics).
-                    - For Day 1 to 6, use the format:
-                        - Revise: (2 simple points)
-                        - Practice: (1-2 simple tasks)
-                    - For Day 7: Mock Interview + Quick Revision.
-                    - Keep it short, clean, and professional.
-
-                    Resume Content: {text}
-                    """
-                    result = get_gemini_response(p)
-                    
-                    st.markdown("### 📊 Strategic Feedback")
-                    st.markdown(f"<div class='info-box'>{result}</div>", unsafe_allow_html=True)
-                    
-                    if st.session_state.lang == "Telugu":
-                        with st.spinner("ట్రాన్స్‌లేట్ చేస్తున్నాము..."):
-                            tel_res = get_gemini_response(f"Translate this career report to professional Telugu: {result}")
-                            st.markdown("### 🇮🇳 తెలుగు రిపోర్ట్")
-                            st.markdown(f"<div class='info-box' style='border-left-color: #10b981;'>{tel_res}</div>", unsafe_allow_html=True)
-                    
-                    render_download_button(result, "HireGen_Roadmap.pdf")
-                    save_to_history(st.session_state.user, "Resume Analysis", text[:200], result)
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    # 2. INTERVIEW PREP (LIVE AI INTERVIEWER)
-    with tabs[1]:
-        st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
-        st.header("🎯 Live AI Interviewer")
-        
-        if 'interview_active' not in st.session_state:
-            st.session_state.interview_active = False
-            st.session_state.interview_q_count = 0
-            st.session_state.interview_log = []
-
-        if not st.session_state.interview_active:
-            prep_mode = st.radio("Prep Mode", ["Corporate Placement", "Competitive Exam", "Topic-Specific"], horizontal=True)
-            
-            if prep_mode == "Corporate Placement":
-                role_iv = st.text_input("Job Role", placeholder="e.g. Data Scientist")
-                skills_iv = st.text_input("Your Key Skills", placeholder="e.g. Python, SQL")
-                projects_iv = st.text_area("Your Key Projects", placeholder="e.g. AI Chatbot")
-            elif prep_mode == "Competitive Exam":
-                role_iv = st.selectbox("Exam Domain", ["Civil Services (UPSC)", "Banking (IBPS/RRB)", "SSC CGL", "Group-1 (State)", "Other competitive exams"])
-                skills_iv = "Conceptual Depth, Ethics, General Awareness" 
-                projects_iv = "Context: Scenario-based and Current Affairs" 
-            else:
-                role_iv = st.text_input("Target Topic for Practice", placeholder="e.g. SQL Joins, React Hooks, UPSC Ethics")
-                skills_iv = f"Mastery of {role_iv}"
-                projects_iv = f"Deep-dive in {role_iv}"
-
-            c1, c2 = st.columns(2)
-            n_tech = c1.number_input("Number of Focused Questions", 1, 10, 3)
-            n_hr = c2.number_input("Number of Practical Questions", 1, 5, 2)
-            
-            if st.button("🏁 Launch Specialized Prep"):
-                st.session_state.interview_active = True
-                st.session_state.interview_role = role_iv
-                st.session_state.prep_mode = prep_mode
-                st.session_state.interview_q_count = 1
-                st.session_state.total_iv_qs = n_tech + n_hr
-                with st.spinner(f"AI {role_iv} Expert is initializing..."):
-                    if prep_mode == "Corporate Placement":
-                        first_q_prompt = f"Expert recruiter for {role_iv}. Ask 1st tech question only based on skills/projects."
-                    elif prep_mode == "Competitive Exam":
-                        first_q_prompt = f"Expert examiner for {role_iv}. Ask 1st conceptual or scenario question. Use heading: ### 📚 {role_iv} Question."
-                    else:
-                        first_q_prompt = f"Expert tutor for {role_iv}. Ask 1st practical question only on {role_iv}. Use heading: ### 🎯 Topic-Based Question."
-                    
-                    first_q = get_groq_response(first_q_prompt)
-                    st.session_state.interview_log.append({"role": "interviewer", "content": first_q})
-                    st.rerun()
-        else:
-            # Display Transcript
-            # (Keeping transcript display as-is for brevity, updated n_qs logic below)
-            for msg in st.session_state.interview_log:
-                if msg["role"] == "interviewer":
-                    st.markdown(f"**🤖 Interviewer:**\n{msg['content']}")
-                else:
-                    st.markdown(f"**👤 You:**\n{msg['content']}")
-            
-            if st.session_state.interview_q_count <= st.session_state.total_iv_qs:
-                # Answer Input
-                user_ans = st.text_area("Your Answer", placeholder="Type your answer here...", height=100)
-                if st.button("📤 Submit Answer"):
-                    if user_ans:
-                        st.session_state.interview_log.append({"role": "user", "content": user_ans})
-                        with st.spinner("Reviewing..."):
-                            feedback_prompt = f"""
-                            Candidate Answer: {user_ans}
-                            Tasks:
-                            - Evaluate based on correctness, clarity and confidence.
-                            - Give score out of 10.
-                            - Suggest 1 improvement.
-                            - Then ask the NEXT question (Question {st.session_state.interview_q_count + 1} of {st.session_state.total_iv_qs}).
-                            - Rule: Mix domain knowledge of {st.session_state.interview_role} with technology usage.
-                            - Use heading: ### ⚙️ Mixed Question.
-                            - If total questions reached, conclude graciously.
-                            """
-                            next_step = get_groq_response(feedback_prompt)
-                            st.session_state.interview_log.append({"role": "interviewer", "content": next_step})
-                            st.session_state.interview_q_count += 1
-                            st.rerun()
-            else:
-                st.success("🎉 Interview Completed! Check summary above.")
-                if st.button("🔄 Restart & Try New Role"):
-                    del st.session_state.interview_active
-                    st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    # 3. ANSWER EVALUATOR
-    with tabs[2]:
-        st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
-        st.header("🧠 Expert Response Evaluator")
-        ques = st.text_area("Copy Interview Question here")
-        ans = st.text_area("Your Draft Response", height=150)
-        if st.button("🔍 Run Full Assessment"):
-            if ques and ans:
-                with st.spinner("Analyzing correctness, clarity, and completeness..."):
-                    eval_p = f"""You are an expert technical evaluator.
-                    Question: {ques}
-                    User Answer: {ans}
-                    
-                    Evaluate based on:
-                    - Correctness
-                    - Completeness
-                    - Clarity
-                    
-                    Provide:
-                    1. Score out of 10
-                    2. What is correct in the response
-                    3. What is missing or needs fix
-                    4. Improved answer (the Professional/Ideal version)
-                    
-                    Keep it constructive and pedagogical.
-                    """
-                    e_res = get_groq_response(eval_p)
-                    st.markdown(f"<div class='info-box'>{e_res}</div>", unsafe_allow_html=True)
-                    if st.session_state.lang == "Telugu":
-                        st.info(get_gemini_response(f"Translate this evaluation to Telugu: {e_res}"))
-            else:
-                st.warning("Please provide both question and answer.")
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    # 4. SKILL QUIZ (LIVE INTERACTIVE QUIZ)
-    with tabs[3]:
-        st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
-        st.header("📝 Live Interactive Quiz Hub")
-        
-    # 4. SKILL QUIZ (ULTIMATE LIVE HUB)
-    with tabs[3]:
-        st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
-        st.header("📝 Ultimate AI Quiz Hub")
-        
-        if 'quiz_active_live' not in st.session_state:
-            st.session_state.quiz_active_live = False
-            st.session_state.quiz_q_count = 0
-            st.session_state.quiz_correct = 0
-            st.session_state.quiz_wrong = 0
-            st.session_state.quiz_skipped = 0
-            st.session_state.quiz_results_log = []
-            st.session_state.quiz_pdf_text = ""
-
-        if not st.session_state.quiz_active_live:
-            qz_mode = st.radio("Quiz Mode", ["Topic-based", "PDF/Document-based"], horizontal=True)
-            qz_topic = st.text_input("Target Topic (e.g. Python, SQL)", placeholder="React, Java...") if qz_mode == "Topic-based" else ""
-            qz_pdf = st.file_uploader("Upload PDF", type=["pdf"]) if qz_mode == "PDF/Document-based" else None
-            qz_n = st.number_input("Number of Questions", 1, 50, 5)
-            
-            if st.button("🏁 Start Professional Quiz"):
-                if qz_mode == "PDF/Document-based" and qz_pdf:
-                    with st.spinner("Extracting..."):
-                        st.session_state.quiz_pdf_text = "".join([p.extract_text() for p in PdfReader(qz_pdf).pages])[:8000]
-                
-                st.session_state.quiz_active_live = True
-                st.session_state.quiz_topic = qz_topic if qz_mode == "Topic-based" else (qz_pdf.name if qz_pdf else "Doc")
-                st.session_state.quiz_total_qs = qz_n
-                st.session_state.quiz_q_count = 1
-                st.session_state.quiz_correct = 0
-                st.session_state.quiz_wrong = 0
-                st.session_state.quiz_skipped = 0
-                st.session_state.quiz_results_log = []
-
-                with st.spinner("Drafting Q1..."):
-                    p_start = f"Quiz Examiner for {st.session_state.quiz_topic}. Ask MCQ 1. A,B,C,D. No answer. (PDF: {st.session_state.quiz_pdf_text[:1000]})"
-                    st.session_state.current_quiz_text = get_groq_response(p_start)
-                    st.rerun()
-        
-        elif st.session_state.quiz_active_live == "FINISHED":
-            st.balloons()
-            rep_p = f"""Quiz Evaluator. Correct: {st.session_state.quiz_correct}, Wrong: {st.session_state.quiz_wrong}, Skipped: {st.session_state.quiz_skipped}.
-            Format:
-            ### 🏆 Result:
-            Score: {st.session_state.quiz_correct} / {st.session_state.quiz_total_qs}
-            ### 📊 Breakdown:
-            - Correct: {st.session_state.quiz_correct}
-            - Wrong: {st.session_state.quiz_wrong}
-            - Skipped: {st.session_state.quiz_skipped}
-            ### 📌 Performance:
-            [Beginner/Intermediate/Advanced]
-            ### 🚀 Improvement Tips:
-            - [Tip 1]
-            - [Tip 2]
-            """
-            report = get_groq_response(rep_p)
-            st.markdown(f"<div class='info-box'>{report}</div>", unsafe_allow_html=True)
-            
-            with st.expander("📖 View Full Answer Key"):
-                for res in st.session_state.quiz_results_log:
-                    st.markdown(f"**Question:**\n{res['question']}")
-                    st.markdown(f"**Evaluation:**\n{res['feedback']}")
-                    st.divider()
-
-            if st.button("🔄 Restart Lab"):
-                st.session_state.quiz_active_live = False
+def auth_overlay():
+    apply_custom_styles()
+    st.markdown("<div style='max-width: 450px; margin: auto; padding: 50px 0;'>", unsafe_allow_html=True)
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    st.title("🛡️ Smart AI Access")
+    choice = st.radio("Access Mode", ["Login", "Register"], horizontal=True)
+    e = st.text_input("GMRIT Email")
+    p = st.text_input("Password", type="password")
+    
+    if choice == "Register":
+        n = st.text_input("Full Name")
+        b = st.selectbox("Branch", ["CSE", "IT", "ECE", "MECH", "EEE", "CIVIL"])
+        if st.button("🚀 Create Account"):
+            ok, msg = register_user(n, e, p, b)
+            if ok: st.success("Created! Now Login.")
+            else: st.error(msg)
+    else:
+        if st.button("🔑 Login"):
+            u = login_user(e, p)
+            if u:
+                st.session_state.logged_in = True
+                st.session_state.email = u.get('email', e)
+                st.session_state.user_name = u.get('name', 'GMRIT Student')
+                st.session_state.user_branch = u.get('branch', 'CSE')
                 st.rerun()
-        
-        else:
-            st.markdown(f"#### 📝 Question {st.session_state.quiz_q_count} / {st.session_state.quiz_total_qs}")
-            st.markdown(f"<div class='info-box'>{st.session_state.current_quiz_text}</div>", unsafe_allow_html=True)
-            user_opt = st.radio("Pick Answer", ["A", "B", "C", "D"], key=f"q_radio_{st.session_state.quiz_q_count}")
-            
-            c1, c2 = st.columns(2)
-            with c1:
-                if st.button("✅ Submit"):
-                    p_check = f"Question: {st.session_state.current_quiz_text}\nUser: {user_opt}. Start with [CORRECT] or [WRONG]. Then show answer. Then if not last, ask MCQ {st.session_state.quiz_q_count+1}."
-                    res = get_groq_response(p_check)
-                    if "[CORRECT]" in res.upper(): st.session_state.quiz_correct += 1
-                    else: st.session_state.quiz_wrong += 1
-                    
-                    st.session_state.quiz_results_log.append({"question": st.session_state.current_quiz_text, "feedback": res})
-                    if st.session_state.quiz_q_count < st.session_state.quiz_total_qs:
-                        st.session_state.quiz_q_count += 1
-                        st.session_state.current_quiz_text = res
-                        st.rerun()
-                    else:
-                        st.session_state.quiz_active_live = "FINISHED"
-                        st.rerun()
-            with c2:
-                if st.button("⏭️ Pass"):
-                    st.session_state.quiz_skipped += 1
-                    p_pass = f"User Skipped {st.session_state.current_quiz_text}. Show answer briefly. Then if not last, ask MCQ {st.session_state.quiz_q_count+1}."
-                    res_p = get_groq_response(p_pass)
-                    st.session_state.quiz_results_log.append({"question": st.session_state.current_quiz_text, "feedback": "Skipped. " + res_p})
-                    if st.session_state.quiz_q_count < st.session_state.quiz_total_qs:
-                        st.session_state.quiz_q_count += 1
-                        st.session_state.current_quiz_text = res_p
-                        st.rerun()
-                    else:
-                        st.session_state.quiz_active_live = "FINISHED"
-                        st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    # 5. CONCEPT EXPLAINER (T2-3)
-    with tabs[4]:
-        st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
-        st.header("💡 AI Multi-Domain Mentor")
-        
-        c1, c2 = st.columns([2, 1])
-        with c1:
-            topic_ex = st.text_input("Ask about any concept...", placeholder="e.g. Recursion, Fiscal Deficit, Blockchain in Voting")
-        with c2:
-            ex_domain = st.selectbox("Your Aim", ["Software Jobs", "Civil Services (UPSC)", "Banking Exams", "Other Government Exams"])
-            
-        if st.button("📖 Explain Clearly"):
-            if topic_ex:
-                    if ex_domain == "Software Jobs":
-                        ex_p = f"""You are an expert coding mentor.
-                        Question: {topic_ex}
-                        
-                        Tasks:
-                        - Explain concept simply.
-                        - Provide a short, clean code example.
-                        - Explain the code logic in 2-3 lines.
-                        
-                        Format:
-                        ### 🧾 Answer:
-                        - [Simple explanation]
-
-                        ### 💡 Key Points:
-                        - [Point 1]
-                        - [Point 2]
-                        - [Point 3]
-
-                        ### 📌 Example (Code):
-                        ```python
-                        # Clean Example
-                        ```
-
-                        ### 🚀 Tip:
-                        - [Technical/Placement tip]
-                        """
-                    else:
-                        ex_p = f"""You are an intelligent AI mentor specialized in {ex_domain}.
-                        Question: {topic_ex}
-                        
-                        Tasks:
-                        - Provide a clear answer in simple English.
-                        - Explain in context of {ex_domain}.
-                        
-                        Format:
-                        ### 🧾 Answer:
-                        - [Simple explanation]
-
-                        ### 💡 Key Points:
-                        - [Focus Point 1]
-                        - [Focus Point 2]
-                        - [Focus Point 3]
-
-                        ### 📌 Example:
-                        - [Practical domain example]
-
-                        ### 🚀 Tip:
-                        - [Preparation tip for {ex_domain}]
-                        """
-                    ex_res = get_groq_response(ex_p)
-                    st.markdown(f"<div class='info-box'>{ex_res}</div>", unsafe_allow_html=True)
-                    if st.session_state.lang == "Telugu":
-                        st.markdown("### 🇮🇳 తెలుగు వివరణ")
-                        st.info(get_gemini_response(f"Translate this {ex_domain} mentor explanation to professional Telugu: {ex_res}"))
-            else:
-                st.warning("Please enter a topic to explain!")
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    # 6. HISTORY
-    with tabs[5]:
-        st.markdown("<div class='glass-card'>", unsafe_allow_html=True)
-        st.header("🕒 Recent History")
-        h_data = load_history()
-        if not h_data: st.info("No records yet.")
-        else:
-            for item in h_data:
-                feat = item.get('feature', 'Career Insight')
-                inpt = item.get('input', 'General Analysis')
-                res = item.get('result', 'No results recorded.')
-                with st.expander(f"{item['timestamp']} - {feat}"):
-                    st.markdown(f"**Brief Details:** {inpt}")
-                    st.markdown(f"**Result:**\n{res}")
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    # FOOTER
-    st.markdown("""
-        <footer>
-            <p>Built for <b>GMRIT GenAI Hackathon 2026</b> | Version 2.0 Premium</p>
-            <p>Advanced Placement Assistant (#T2-1) + Educational AI Solutions</p>
-        </footer>
-    """, unsafe_allow_html=True)
+            else: st.error("Access Refused!")
+    st.markdown("</div></div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
-    main()
+    if 'logged_in' not in st.session_state: st.session_state.logged_in = False
+    if not st.session_state.logged_in:
+        auth_overlay()
+    else:
+        main()
