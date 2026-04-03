@@ -1,0 +1,9 @@
+.streamlit/secrets.toml
+history.json
+__pycache__/
+*.pyc
+models.txt
+groq_models.txt
+.env
+venv/
+.DS_Store
