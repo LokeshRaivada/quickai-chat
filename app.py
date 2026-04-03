@@ -67,111 +67,125 @@ def save_to_history(user_data, feature, input_text, result):
 # ---------------- UI & STYLING ----------------
 def apply_custom_styles():
     st.markdown("""
-        <style>
-        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap');
-        
-        * { font-family: 'Outfit', sans-serif; }
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap');
+    
+    /* Global Colors */
+    html, body, [data-testid="stAppViewContainer"] {
+        font-family: 'Outfit', sans-serif;
+        background: #ffffff !important;
+        color: #064e3b !important;
+    }
 
-        .stApp {
-            background: linear-gradient(135deg, #020617 0%, #0f172a 50%, #1e1b4b 100%);
-            color: #f8fafc;
-        }
-        
-        /* Glassmorphism Cards */
-        .glass-card {
-            background: rgba(255, 255, 255, 0.03);
-            backdrop-filter: blur(12px);
-            border-radius: 24px;
-            padding: 35px;
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            margin-bottom: 25px;
-            box-shadow: 0 20px 50px rgba(0,0,0,0.4);
-            transition: all 0.3s ease;
-        }
-        
-        .glass-card:hover { border: 1px solid rgba(99, 102, 241, 0.4); transform: translateY(-5px); }
+    /* Mint Sidebar (Replacing Black) */
+    [data-testid="stSidebar"], [data-testid="stSidebar"] section {
+        background-color: #f0fdf4 !important;
+        border-right: 1px solid #d1fae5 !important;
+    }
+    [data-testid="stSidebar"] * { color: #064e3b !important; }
 
-        /* Sidebar Styling */
-        section[data-testid="stSidebar"] {
-            background: rgba(15, 23, 42, 0.9) !important;
-            backdrop-filter: blur(20px);
-            border-right: 1px solid rgba(255,255,255,0.05);
-        }
+    /* Green File Uploader (Replacing Black) */
+    [data-testid="stFileUploader"] section {
+        background-color: #ecfdf5 !important;
+        border: 2px dashed #10b981 !important;
+        color: #064e3b !important;
+        border-radius: 12px !important;
+    }
+    [data-testid="stFileUploader"] label { color: #064e3b !important; }
+    [data-testid="stFileUploader"] section button {
+        background-color: #10b981 !important;
+        color: white !important;
+        border: none !important;
+    }
 
-        /* Custom Tabs */
-        .stTabs [data-baseweb="tab-list"] {
-            gap: 15px;
-            background-color: transparent;
-        }
-        .stTabs [data-baseweb="tab"] {
-            height: 60px;
-            background-color: rgba(255,255,255,0.02);
-            border-radius: 12px;
-            color: #94a3b8;
-            padding: 10px 25px;
-            border: 1px solid rgba(255,255,255,0.05);
-            transition: all 0.3s ease;
-        }
-        .stTabs [aria-selected="true"] {
-            background-color: rgba(99, 102, 241, 0.2) !important;
-            color: #818cf8 !important;
-            border: 1px solid #818cf8 !important;
-        }
+    /* GLOBAL VISIBILITY OVERRIDE: ENFORCE DARK GREEN ON WHITE */
+    input, textarea, select {
+        color: #064e3b !important;
+        background-color: #ffffff !important;
+        -webkit-text-fill-color: #064e3b !important;
+    }
+    
+    [data-baseweb="select"], [data-baseweb="select"] * {
+        background-color: #ffffff !important;
+        color: #064e3b !important;
+    }
 
-        /* Modern Typography */
-        h1, h2, h3 { color: #f8fafc; font-weight: 700; }
-        .gradient-text {
-            background: linear-gradient(90deg, #818cf8, #c084fc);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
+    [data-testid="stNumberInput"] div[data-baseweb="input"], 
+    [data-testid="stNumberInput"] button {
+        background-color: #ffffff !important;
+        color: #10b981 !important;
+    }
 
-        /* Buttons & Inputs */
-        .stButton>button {
-            width: 100%;
-            background: linear-gradient(90deg, #4f46e5, #7c3aed) !important;
-            color: white !important;
-            border: none !important;
-            border-radius: 14px !important;
-            padding: 16px !important;
-            font-weight: 700 !important;
-            box-shadow: 0 4px 15px rgba(79, 70, 229, 0.3);
-            transition: all 0.3s ease !important;
-        }
-        .stButton>button:hover { transform: scale(1.02); box-shadow: 0 8px 25px rgba(79, 70, 229, 0.5) !important; }
+    /* Radio Button Clarity */
+    [data-testid="stRadio"] label div[data-testid="stMarkdownContainer"] p {
+        color: #064e3b !important;
+        font-weight: 600 !important;
+    }
+    /* Unselected circle */
+    [data-testid="stRadio"] div[role="radiogroup"] label div:first-of-type {
+        background-color: #ffffff !important;
+        border: 2px solid #10b981 !important;
+    }
+    /* Selected circle */
+    [data-checked="true"] div:first-of-type {
+        background-color: #10b981 !important;
+        border-color: #10b981 !important;
+    }
 
-        .wa-button {
-            background: #10b981 !important;
-            text-decoration: none;
-            color: white !important;
-            padding: 14px;
-            border-radius: 14px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: 600;
-            margin-top: 10px;
-        }
+    label { color: #064e3b !important; font-weight: 600 !important; }
 
-        .info-box {
-            background: rgba(99, 102, 241, 0.05);
-            border-left: 5px solid #6366f1;
-            padding: 20px;
-            border-radius: 12px;
-            margin: 15px 0;
-            line-height: 1.6;
-            color: #cbd5e1;
-        }
-        
-        /* Footer */
-        footer {
-            text-align: center;
-            padding: 40px;
-            color: #64748b;
-            border-top: 1px solid rgba(255,255,255,0.05);
-            margin-top: 60px;
-        }
-        </style>
+    .glass-card {
+        background: rgba(240, 253, 244, 0.6) !important;
+        padding: 30px !important;
+        border-radius: 20px !important;
+        border: 1px solid #d1fae5 !important;
+        box-shadow: 0 4px 20px rgba(16, 185, 129, 0.05) !important;
+        margin-bottom: 25px !important;
+        backdrop-filter: blur(10px);
+    }
+
+    .info-box {
+        background: #ecfdf5 !important;
+        border-left: 5px solid #10b981 !important;
+        padding: 20px !important;
+        border-radius: 12px !important;
+        margin: 15px 0 !important;
+        color: #065f46 !important;
+    }
+
+    /* Green Navigation Control */
+    .stTabs [data-baseweb="tab-list"] { gap: 10px !important; }
+    .stTabs [data-baseweb="tab"] {
+        background-color: #f0fdf4 !important;
+        border-radius: 10px 10px 0 0 !important;
+        color: #059669 !important;
+        padding: 10px 25px !important;
+        border: 1px solid #d1fae5 !important;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: #10b981 !important;
+        color: white !important;
+        border: 1px solid #10b981 !important;
+    }
+
+    /* Primary Jade Action Buttons */
+    .stButton>button {
+        background: #10b981 !important;
+        color: white !important;
+        border-radius: 12px !important;
+        padding: 12px !important;
+        font-weight: 700 !important;
+        border: none !important;
+        transition: 0.3s !important;
+        box-shadow: 0 4px 15px rgba(16, 185, 129, 0.2) !important;
+    }
+    .stButton>button:hover {
+        background-color: #059669 !important;
+        box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4) !important;
+    }
+
+    h1, h2, h3 { color: #064e3b !important; }
+</style>
     """, unsafe_allow_html=True)
 
 # ---------------- CORE AI PERSONA ----------------
@@ -254,7 +268,7 @@ def main():
 
     # --- SIDEBAR & LOGIN ---
     with st.sidebar:
-        st.markdown("<h1 class='gradient-text' style='font-size: 2.2rem;'>HireGen AI</h1>", unsafe_allow_html=True)
+        st.markdown("<h1 style='color: #10b981; font-size: 2.2rem;'>HireGen AI</h1>", unsafe_allow_html=True)
         st.image("https://img.icons8.com/fluency/144/rocket.png", width=100)
         
         st.markdown("### 🎓 Student Identity")
@@ -664,9 +678,12 @@ def main():
         if not h_data: st.info("No records yet.")
         else:
             for item in h_data:
-                with st.expander(f"{item['timestamp']} - {item['feature']}"):
-                    st.markdown(f"**Brief Details:** {item['input']}")
-                    st.markdown(f"**Result:**\n{item['result']}")
+                feat = item.get('feature', 'Career Insight')
+                inpt = item.get('input', 'General Analysis')
+                res = item.get('result', 'No results recorded.')
+                with st.expander(f"{item['timestamp']} - {feat}"):
+                    st.markdown(f"**Brief Details:** {inpt}")
+                    st.markdown(f"**Result:**\n{res}")
         st.markdown("</div>", unsafe_allow_html=True)
 
     # FOOTER
