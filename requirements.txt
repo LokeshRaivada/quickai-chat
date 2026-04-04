@@ -1,6 +1,0 @@
-streamlit
-google-generativeai
-groq
-PyPDF2
-python-dotenv
-resend

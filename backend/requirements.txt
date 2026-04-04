@@ -1,0 +1,8 @@
+flask
+flask-cors
+groq
+google-generativeai
+PyPDF2
+python-dotenv
+supabase
+resend

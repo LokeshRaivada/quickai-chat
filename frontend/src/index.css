@@ -1,0 +1,103 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+:root {
+  font-family: 'Inter', system-ui, sans-serif;
+  color-scheme: dark;
+  color: #f8fafc;
+  background-color: #0B1120;
+}
+
+body {
+  margin: 0;
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background-color: #0B1120;
+  background-image: 
+    radial-gradient(at 0% 0%, hsla(253,16%,7%,1) 0, transparent 50%), 
+    radial-gradient(at 50% 0%, hsla(225,50%,20%,0.2) 0, transparent 50%), 
+    radial-gradient(at 100% 0%, hsla(339,49%,20%,0.1) 0, transparent 50%);
+  background-attachment: fixed;
+}
+
+#root {
+  width: 100%;
+  min-height: 100vh;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Poppins', sans-serif;
+}
+
+.heading-gradient {
+  @apply bg-clip-text text-transparent bg-linear-to-r from-blue-400 via-indigo-400 to-purple-500;
+  text-shadow: 0 0 30px rgba(99, 102, 241, 0.4);
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent; 
+}
+::-webkit-scrollbar-thumb {
+  background: #334155; 
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #475569; 
+}
+
+/* Premium Card & Glass styles */
+.glass-panel {
+  @apply bg-[#0F172A]/70 backdrop-blur-xl border border-white/10 rounded-[24px] shadow-[0_8px_30px_rgb(0,0,0,0.12)];
+}
+.glass-card {
+  @apply bg-[#1E293B]/60 backdrop-blur-lg border border-white/5 rounded-[20px] shadow-xl transition-all duration-300;
+}
+.glass-card:hover {
+  @apply border-indigo-500/40 shadow-[0_0_30px_rgba(99,102,241,0.15)] translate-y-[-4px];
+}
+
+/* Gradients */
+.gradient-primary {
+  @apply bg-linear-to-r from-blue-600 via-indigo-600 to-purple-600 text-white shadow-[0_0_20px_rgba(79,70,229,0.3)];
+}
+
+.glow-button {
+  @apply relative inline-flex items-center justify-center font-bold overflow-hidden rounded-xl transition-all hover:-translate-y-1 hover:shadow-[0_0_25px_rgba(99,102,241,0.5)] active:scale-95 disabled:opacity-50 disabled:pointer-events-none;
+}
+.glow-button::before {
+  content: '';
+  position: absolute;
+  top: 0; left: -100%; width: 100%; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+  transition: all 0.5s;
+}
+.glow-button:hover::before {
+  left: 100%;
+}
+
+.text-glow {
+  text-shadow: 0 0 30px rgba(99, 102, 241, 0.4);
+}
+
+/* Animations */
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+}
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(1.05); }
+}
+.animate-pulse-glow {
+  animation: pulse-glow 4s ease-in-out infinite;
+}
